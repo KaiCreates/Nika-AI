@@ -1,0 +1,51 @@
+# Nika AI Configuration
+ollama:
+  host: "http://localhost:11434"
+  default_model: "qwen3.5:4b"
+  embed_model: "nomic-embed-text"
+  vision_model: "qwen3.5:4b"  # vision model for screen analysis (handles both chat+vision)
+  timeout: 120
+
+agent:
+  context_limit: 6000
+  max_steps: 20
+  safety_mode: "NORMAL"   # STRICT | NORMAL | YOLO
+  auto_recovery: true
+  loop_detect_threshold: 3
+
+ui:
+  mode: "tui"             # tui | web
+  web_port: 7860
+  theme: "nika_dark"
+
+memory:
+  db_path: "data/memory/nika.db"
+  chroma_path: "data/memory/chroma"
+  short_term_limit: 20    # messages before compression
+  semantic_top_k: 5
+  episodic_load_count: 2
+
+logging:
+  audit_log: "data/logs/audit.jsonl"
+  daemon_log: "data/logs/daemon.jsonl"
+  retention_days: 90
+
+documents:
+  output_dir: "data/documents"
+  diff_before_overwrite: true
+
+sessions:
+  dir: "data/sessions"
+
+plugins:
+  dir: "plugins"
+
+system:
+  cpu_alert_threshold: 85
+  health_check_interval: 300   # seconds
+
+aliases: {}
+# Example:
+# morning:
+#   expansion: "Summarize my pending tasks and check system health"
+#   description: "Morning briefing"

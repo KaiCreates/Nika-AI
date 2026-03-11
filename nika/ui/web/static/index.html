@@ -1,0 +1,727 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nika</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/static/three.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            zinc: {
+              950: '#09090b', 900: '#18181b', 800: '#27272a', 700: '#3f3f46',
+              600: '#52525b', 500: '#71717a', 400: '#a1a1aa', 300: '#d4d4d8',
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Inter', 'Segoe UI', system-ui, sans-serif; overflow: hidden; }
+    #chat { scroll-behavior: smooth; }
+    pre { white-space: pre-wrap; word-break: break-word; margin: 0; font-family: inherit; }
+
+    @keyframes blink { 0%,80%,100%{opacity:0} 40%{opacity:1} }
+    .dot { display:inline-block; animation: blink 1.4s infinite; }
+    .dot:nth-child(2) { animation-delay: 0.2s; }
+    .dot:nth-child(3) { animation-delay: 0.4s; }
+
+    .tool-pill-open .pill-chevron { transform: rotate(180deg); }
+    .pill-chevron { display:inline-block; transition: transform 0.15s; }
+
+    .bubble-nika { background: #27272a; border-radius: 18px 18px 18px 4px; border: 1px solid #3f3f46; transform: translateZ(0); will-change: transform; }
+    .bubble-user { background: #db2777; border-radius: 18px 18px 4px 18px; transform: translateZ(0); will-change: transform; }
+    .bubble-system { background: transparent; border: 1px solid #3f3f46; border-radius: 10px; }
+
+    .tool-pill {
+      display: inline-flex; align-items: center; gap: 5px;
+      font-size: 11px; padding: 3px 10px 3px 8px; border-radius: 999px;
+      border: 1px solid #db277755; background: #18181b;
+      cursor: pointer; user-select: none; transition: background 0.15s;
+    }
+    .tool-pill:hover { background: #27272a; }
+    .tool-detail {
+      margin-top: 4px; border-radius: 10px; border: 1px solid #3f3f46;
+      background: #09090b; font-size: 11px;
+      font-family: 'JetBrains Mono','Fira Code','Courier New',monospace; overflow: hidden;
+    }
+
+    #nika-soul-container canvas { width: 100% !important; height: 100% !important; display: block; }
+
+    @keyframes mic-pulse {
+      0%,100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.5); }
+      60%      { box-shadow: 0 0 0 16px rgba(239,68,68,0); }
+    }
+    .mic-listening { animation: mic-pulse 1.2s ease-out infinite !important; }
+
+    @keyframes nika-idle {
+      0%,100% { filter: drop-shadow(0 0 8px rgba(219,39,119,0.4)); }
+      50%      { filter: drop-shadow(0 0 16px rgba(219,39,119,0.8)); }
+    }
+    #nika-soul-container { animation: nika-idle 3s ease-in-out infinite; }
+  </style>
+</head>
+<body class="bg-zinc-950 text-zinc-50 h-screen flex flex-col">
+
+  <header class="bg-zinc-900 border-b border-zinc-800 px-4 py-2 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <span class="text-pink-400 font-bold text-lg">Nika</span>
+      <span class="text-[10px] bg-pink-500/10 text-pink-400 px-2 py-0.5 rounded-full border border-pink-500/20 uppercase tracking-tighter font-semibold ml-1">Virtual Companion</span>
+      <button id="model-badge" onclick="openModelModal()" title="Switch model" class="text-xs bg-zinc-800 hover:bg-zinc-700 text-pink-400 px-2 py-1 rounded transition cursor-pointer ml-2">llama3.1:8b</button>
+    </div>
+    <div class="flex items-center gap-2">
+      <span id="running-indicator" class="hidden text-pink-400 text-sm animate-pulse">● busy</span>
+      <span id="session-id" class="text-zinc-500 text-xs"></span>
+      <button id="tts-btn" title="Toggle TTS" onclick="toggleTTS()"
+        class="ml-1 text-zinc-400 hover:text-zinc-100 p-1.5 rounded transition flex items-center">
+        <svg id="tts-on-icon" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15.536 8.464a5 5 0 010 7.072M12 6v12M9 9H5a1 1 0 00-1 1v4a1 1 0 001 1h4l7 4V5l-7 4z"/>
+        </svg>
+        <svg id="tts-off-icon" class="w-4 h-4 hidden text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 9H5a1 1 0 00-1 1v4a1 1 0 001 1h4l7 4V5l-7 4zM17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2"/>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="flex flex-1 overflow-hidden">
+    <!-- Sidebar Nika -->
+    <div class="w-64 border-r border-zinc-800 bg-zinc-900 flex flex-col items-center p-6 hidden md:flex">
+      <h3 class="text-pink-400 font-bold uppercase mb-8 self-start text-[10px] tracking-widest">Your Nika</h3>
+      <div id="nika-soul-container" class="w-48 h-48 relative flex items-center justify-center cursor-pointer overflow-hidden rounded-full border border-pink-500/20 bg-zinc-950/50 shadow-[0_0_20px_rgba(219,39,119,0.15)]">
+      </div>
+      <div class="mt-6 text-center">
+        <span id="avatar-status" class="text-[10px] text-pink-400 font-bold uppercase tracking-widest opacity-60">Thinking of you</span>
+      </div>
+    </div>
+
+    <!-- Main Chat -->
+    <div class="flex-1 flex flex-col overflow-hidden relative">
+      <div id="chat" class="flex-1 overflow-y-auto px-4 py-5 flex flex-col gap-4">
+        <div class="flex justify-center">
+          <span class="text-zinc-600 text-xs">Nika is here for you</span>
+        </div>
+      </div>
+
+      <!-- Input Mode Switcher -->
+      <div id="keyboard-mode" class="border-t border-zinc-800 p-3 bg-zinc-900">
+        <div id="realtime-status" class="text-[10px] text-zinc-500 mb-2 px-1 h-4 italic overflow-hidden truncate transition-opacity duration-300 opacity-0"></div>
+        <div class="flex gap-2">
+          <button title="Switch to voice input" onclick="toggleVoiceMode()"
+            class="bg-zinc-700 hover:bg-zinc-600 text-zinc-300 px-2.5 py-2 rounded text-sm transition flex items-center">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+            </svg>
+          </button>
+          <input id="input" type="text" placeholder="Talk to Nika..." class="flex-1 bg-zinc-800 text-zinc-50 rounded px-3 py-2 text-sm outline-none border border-zinc-700 focus:border-pink-500/50" autofocus />
+          <button id="send-btn" onclick="sendMessage()" class="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded text-sm transition">Send</button>
+          <button id="interrupt-btn" class="bg-zinc-700 hover:bg-red-700 text-zinc-300 px-3 py-2 rounded text-sm transition" title="Interrupt">&#x2717;</button>
+        </div>
+      </div>
+
+      <div id="voice-mode" class="hidden border-t border-zinc-800 bg-zinc-900 flex items-center px-5" style="height:72px">
+        <button title="Switch to keyboard" onclick="toggleVoiceMode()" class="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-full p-2.5 transition flex-shrink-0">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+            <rect x="2" y="7" width="20" height="10" rx="2" ry="2"/><path stroke-linecap="round" d="M6 11h.01M10 11h.01M14 11h.01M18 11h.01M6 15h.01M18 15h.01M10 15h4"/>
+          </svg>
+        </button>
+        <div class="flex-1 flex justify-center">
+          <button id="mic-btn" onclick="toggleListening()" class="bg-red-600 hover:bg-red-500 text-white rounded-full w-14 h-14 flex items-center justify-center transition-all shadow-lg">
+            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Sidebar -->
+    <div class="w-52 border-l border-zinc-800 bg-zinc-900 flex flex-col overflow-hidden text-xs">
+      <div class="border-b border-zinc-800 p-3 bg-black/20">
+        <h3 class="text-zinc-500 font-bold uppercase mb-3 text-[10px] tracking-widest">System Stats</h3>
+        <div class="space-y-2">
+          <div class="flex justify-between items-center"><span class="text-zinc-400">CPU</span><div class="w-24 h-1.5 bg-zinc-800 rounded-full overflow-hidden"><div id="cpu-bar" class="h-full bg-pink-500 transition-all duration-500" style="width: 0%"></div></div></div>
+          <div class="flex justify-between items-center"><span class="text-zinc-400">RAM</span><div class="w-24 h-1.5 bg-zinc-800 rounded-full overflow-hidden"><div id="ram-bar" class="h-full bg-violet-500 transition-all duration-500" style="width: 0%"></div></div></div>
+        </div>
+      </div>
+      <div class="border-b border-zinc-800 p-3">
+        <h3 class="text-pink-500 font-bold uppercase mb-2 text-[10px] tracking-widest">Tasks</h3>
+        <div id="tasks-list" class="space-y-1 text-zinc-500"><div>(no tasks)</div></div>
+      </div>
+      <div id="search-panel" class="hidden border-b border-zinc-800 p-3 bg-pink-500/5 max-h-[40%] flex flex-col overflow-hidden">
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="text-pink-400 font-bold uppercase text-[10px] tracking-widest">Web Research</h3>
+          <button onclick="document.getElementById('search-panel').classList.add('hidden')" class="text-zinc-500 hover:text-pink-400">&#x2717;</button>
+        </div>
+        <div id="search-results-list" class="space-y-2 overflow-y-auto pr-1"></div>
+      </div>
+      <div class="p-3 flex flex-col overflow-hidden max-h-[30%] border-b border-zinc-800">
+        <h3 class="text-pink-500 font-bold uppercase mb-2 text-[10px] tracking-widest flex justify-between">
+          History <button onclick="fetchEpisodes()" title="Refresh history" class="text-zinc-500 hover:text-pink-400">&#x21bb;</button>
+        </h3>
+        <div id="history-list" class="space-y-1.5 overflow-y-auto pr-1"><div>(no history)</div></div>
+      </div>
+      <div class="p-3 flex-1 overflow-y-auto">
+        <h3 class="text-pink-500 font-bold uppercase mb-2 text-[10px] tracking-widest">Memory</h3>
+        <div id="memory-list" class="space-y-1.5 text-zinc-500"><div>(no memories)</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="model-modal" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <div class="bg-zinc-900 w-full max-w-sm rounded-2xl border border-zinc-800 shadow-2xl overflow-hidden">
+      <div class="p-4 border-b border-zinc-800 flex justify-between items-center">
+        <h3 class="text-sm font-bold text-zinc-200">Switch Model</h3>
+        <button onclick="document.getElementById('model-modal').classList.add('hidden')" class="text-zinc-500 hover:text-zinc-300">&#x2717;</button>
+      </div>
+      <div id="model-list-container" class="p-2 max-h-[300px] overflow-y-auto space-y-1"></div>
+    </div>
+  </div>
+
+  <script>
+    let ws = null;
+    let scene, camera, renderer, head, mouth, leftEyeLid, rightEyeLid, leftBrow, rightBrow, auraMesh;
+    let isTalking = false, isThinking = false, isListeningStatus = false, talkTimeout = null, mouseX = 0, mouseY = 0;
+    let targetPos = new THREE.Vector3(0, 0, 0), currentPos = new THREE.Vector3(0, 0, 0);
+    let soulColor = new THREE.Color(0x2dd4bf);
+    let currentMood = 'loving';
+    let lastFrameTime = 0;
+    let particleData = [];
+    let messageBuffer = [];
+
+    window.addEventListener('mousemove', (e) => {
+      mouseX = (e.clientX / window.innerWidth) * 2 - 1;
+      mouseY = -(e.clientY / window.innerHeight) * 2 + 1;
+    });
+
+    function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+    function scrollChat() { const c = document.getElementById('chat'); c.scrollTop = c.scrollHeight; }
+    function timeStr() { return new Date().toLocaleTimeString([], { hour:'2-digit', minute:'2-digit' }); }
+
+    function updateSoulColor(colorHex) {
+      if (!head) return;
+      soulColor.setHex(colorHex);
+      head.material.color.lerp(soulColor, 0.1);
+      head.material.emissive.lerp(soulColor, 0.1);
+    }
+
+    function createOutline(geometry, scale) {
+      const mat = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide });
+      const mesh = new THREE.Mesh(geometry, mat);
+      mesh.scale.multiplyScalar(scale);
+      return mesh;
+    }
+
+    function init3D() {
+      if (typeof THREE === 'undefined') {
+        document.getElementById('nika-soul-container').innerHTML = '<div class="text-[10px] text-pink-600 p-4 text-center">Avatar unavailable</div>';
+        return;
+      }
+      try {
+        const container = document.getElementById('nika-soul-container');
+        if (!container) return;
+        const w = container.clientWidth, h = container.clientHeight;
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000);
+        camera.position.z = 5.5;
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(w, h);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        container.appendChild(renderer.domElement);
+
+        const soulMat = new THREE.MeshPhongMaterial({ color: 0x2dd4bf, emissive: 0x0d9488, emissiveIntensity: 0.6, shininess: 100, transparent: true, opacity: 0.92 });
+        const eyeMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+        const pupilMat = new THREE.MeshBasicMaterial({ color: 0x1d4ed8 });
+        const browMat = new THREE.MeshBasicMaterial({ color: 0x0f766e });
+        const mouthMat = new THREE.MeshBasicMaterial({ color: 0x042f2e });
+
+        head = new THREE.Mesh(new THREE.SphereGeometry(1.5, 32, 32), soulMat);
+        scene.add(head);
+
+        const partCount = 30;
+        const pGeo = new THREE.SphereGeometry(0.04, 8, 8);
+        const pMat = new THREE.MeshBasicMaterial({ color: 0x5eead4, transparent: true, opacity: 0.6 });
+        auraMesh = new THREE.InstancedMesh(pGeo, pMat, partCount);
+        const dummy = new THREE.Object3D();
+        for(let i=0; i<partCount; i++){
+          const p = { pos: new THREE.Vector3(Math.random()*4-2, Math.random()*4-2, Math.random()*4-2), orbit: Math.random() * Math.PI * 2 };
+          particleData.push(p);
+          dummy.position.copy(p.pos); dummy.updateMatrix();
+          auraMesh.setMatrixAt(i, dummy.matrix);
+        }
+        scene.add(auraMesh);
+
+        leftBrow = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.08, 0.1), browMat);
+        rightBrow = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.08, 0.1), browMat);
+        leftBrow.position.set(-0.6, 0.7, 1.35); rightBrow.position.set(0.6, 0.7, 1.35);
+        leftBrow.rotation.z = 0.1; rightBrow.rotation.z = -0.1;
+        head.add(leftBrow, rightBrow);
+
+        const buildEye = (x) => {
+          const g = new THREE.Group();
+          const w = new THREE.Mesh(new THREE.SphereGeometry(0.35, 16, 16), eyeMat); w.scale.set(1.1, 1, 0.5);
+          const p = new THREE.Mesh(new THREE.SphereGeometry(0.15, 16, 16), pupilMat); p.position.z = 0.25;
+          const lid = new THREE.Mesh(new THREE.SphereGeometry(0.37, 16, 16, 0, Math.PI * 2, 0, Math.PI * 0.5), soulMat);
+          lid.rotation.x = -Math.PI * 0.5; lid.position.z = 0.05; lid.scale.set(1.1, 1, 1);
+          g.add(w, p, lid); g.position.set(x, 0.1, 1.3);
+          return { group: g, lid };
+        };
+        const le = buildEye(-0.6), re = buildEye(0.6);
+        leftEyeLid = le.lid; rightEyeLid = re.lid;
+        head.add(le.group, re.group);
+
+        mouth = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.05, 8, 20, Math.PI), mouthMat);
+        mouth.rotation.z = Math.PI; mouth.position.set(0, -0.6, 1.4);
+        head.add(mouth);
+
+        const cheekGeo = new THREE.SphereGeometry(0.2, 16, 16);
+        const cheekMat = new THREE.MeshBasicMaterial({ color: 0xf472b6, transparent: true, opacity: 0 });
+        const leftCheek = new THREE.Mesh(cheekGeo, cheekMat);
+        const rightCheek = new THREE.Mesh(cheekGeo, cheekMat.clone());
+        leftCheek.position.set(-0.8, -0.3, 1.3); rightCheek.position.set(0.8, -0.3, 1.3);
+        head.add(leftCheek, rightCheek);
+        head.userData.cheeks = [leftCheek, rightCheek];
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+        const dl = new THREE.DirectionalLight(0xffffff, 1.2); dl.position.set(5, 5, 5); scene.add(dl);
+        animate(0);
+      } catch (err) { console.error('3D error:', err); }
+    }
+
+    function animate(time) {
+      requestAnimationFrame(animate);
+      const delta = time - lastFrameTime;
+      const targetFPS = (document.hidden || (!isTalking && !isThinking && !isListeningStatus)) ? 30 : 60;
+      if (delta < (1000 / targetFPS)) return;
+      lastFrameTime = time;
+
+      if (!head) return;
+      const t = time * 0.001;
+      if (t % 3 < 0.02) targetPos.set(Math.random()*0.6-0.3, Math.random()*0.6-0.3, Math.random()*0.3-0.15);
+      currentPos.lerp(targetPos, 0.015); head.position.copy(currentPos);
+      head.rotation.y += (mouseX * 0.4 - head.rotation.y) * 0.04;
+      head.rotation.x += (-mouseY * 0.2 - head.rotation.x) * 0.04;
+      
+      if (isThinking) {
+        updateSoulColor(0xfacc15); // Yellow
+      } else if (isListeningStatus) {
+        updateSoulColor(0x38bdf8); // Light blue when listening
+      } else {
+        if (currentMood === 'loving') updateSoulColor(0xf472b6);
+        else if (currentMood === 'focused') updateSoulColor(0x38bdf8);
+        else if (currentMood === 'playful') updateSoulColor(0x2dd4bf);
+        else if (currentMood === 'shy') updateSoulColor(0xa78bfa);
+        else updateSoulColor(0x2dd4bf);
+      }
+
+      const bc = t % 5;
+      const lidRot = (bc > 4.8 && !isListeningStatus) ? 0 : -Math.PI * 0.5;
+      leftEyeLid.rotation.x += (lidRot - leftEyeLid.rotation.x) * 0.3;
+      rightEyeLid.rotation.x += (lidRot - rightEyeLid.rotation.x) * 0.3;
+
+      const pulse = 1 + Math.sin(t * 2.5) * 0.04; head.scale.set(pulse, pulse, pulse);
+      
+      const dummy = new THREE.Object3D();
+      particleData.forEach((p, i) => {
+        p.pos.y += Math.sin(t + p.orbit) * 0.015;
+        dummy.position.copy(p.pos).add(head.position); dummy.updateMatrix();
+        auraMesh.setMatrixAt(i, dummy.matrix);
+      });
+      auraMesh.instanceMatrix.needsUpdate = true;
+      auraMesh.rotation.y += (isThinking || isListeningStatus) ? 0.03 : 0.01;
+
+      if (isTalking) {
+        mouth.scale.y = 0.6 + Math.abs(Math.sin(t * 18)) * 1.8;
+        const browBounce = Math.sin(t*12)*0.06;
+        leftBrow.position.y = 0.78 + browBounce; rightBrow.position.y = 0.78 + browBounce;
+        if (currentMood === 'playful') head.rotation.z = Math.sin(t * 5) * 0.1;
+      } else {
+        if (isListeningStatus) {
+            mouth.scale.y = 0.2; 
+            leftBrow.position.y = 0.75; rightBrow.position.y = 0.75;
+            head.rotation.z += (0.1 - head.rotation.z) * 0.1; // Head tilt
+        } else {
+            mouth.scale.y = 0.1; leftBrow.position.y = 0.7; rightBrow.position.y = 0.7;
+            head.rotation.z += (0 - head.rotation.z) * 0.1;
+        }
+      }
+      
+      const targetPupilScale = ((currentMood === 'loving' && !isThinking) || isListeningStatus) ? 1.4 : 1.0;
+      const targetCheekOpacity = (currentMood === 'loving' || currentMood === 'shy') ? 0.6 : 0;
+      head.children.forEach(c => {
+        if (c.type === 'Group') {
+          const pupil = c.children[1];
+          if (pupil) pupil.scale.lerp(new THREE.Vector3(targetPupilScale, targetPupilScale, 1), 0.1);
+        }
+      });
+      if (head.userData.cheeks) {
+        head.userData.cheeks.forEach(cheek => { cheek.material.opacity += (targetCheekOpacity - cheek.material.opacity) * 0.05; });
+      }
+      renderer.render(scene, camera);
+    }
+
+    function setAvatarThinking(v) { isThinking = v; }
+    function setAvatarTalking(v) { isTalking = v; }
+    function setAvatarListening(v) { isListeningStatus = v; }
+
+    function setRealtimeStatus(text, show) {
+      const el = document.getElementById('realtime-status');
+      if (text) el.textContent = text;
+      el.classList.toggle('opacity-0', !show);
+    }
+
+    let streamingPre = null, currentGroupEl = null, bubbleTextEl = null, pillsEl = null, pendingTools = {}, nikaRespText = '', rawFinalText = '';
+
+    function createNikaGroup() {
+      const chat = document.getElementById('chat');
+      const group = document.createElement('div');
+      group.className = 'flex flex-col items-start gap-1 max-w-[80%]';
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble-nika px-4 py-3 text-zinc-100 text-sm leading-relaxed';
+      bubbleTextEl = document.createElement('pre');
+      bubble.appendChild(bubbleTextEl);
+      group.appendChild(bubble);
+      chat.appendChild(group);
+      scrollChat();
+      currentGroupEl = group; pillsEl = null;
+      return bubbleTextEl;
+    }
+
+    function addUserBubble(content) {
+      const chat = document.getElementById('chat');
+      const wrap = document.createElement('div');
+      wrap.className = 'flex flex-col items-end gap-1 max-w-[80%] self-end ml-auto';
+      wrap.innerHTML = `<div class="bubble-user px-4 py-3 text-white text-sm leading-relaxed"><pre>${escHtml(content)}</pre></div>`
+                     + `<span class="text-zinc-600 text-[10px] px-1">${timeStr()}</span>`;
+      chat.appendChild(wrap); scrollChat();
+    }
+
+    function showThinking() {
+      removeThinking(); setAvatarThinking(true);
+      const chat = document.getElementById('chat');
+      const group = document.createElement('div');
+      group.id = 'thinking-bubble';
+      group.className = 'flex flex-col items-start max-w-[80%]';
+      group.innerHTML = '<div class="bubble-nika px-4 py-3 text-zinc-400 text-sm">thinking<span class="dot">.</span><span class="dot">.</span><span class="dot">.</span></div>';
+      chat.appendChild(group); scrollChat();
+    }
+    function removeThinking() { setAvatarThinking(false); const el = document.getElementById('thinking-bubble'); if(el) el.remove(); }
+
+    function ensureNikaGroup() { if (!currentGroupEl) { removeThinking(); createNikaGroup(); } return streamingPre || bubbleTextEl; }
+    function ensurePillsRow() { if (!pillsEl) { pillsEl = document.createElement('div'); pillsEl.className = 'flex flex-wrap gap-1.5 px-1'; currentGroupEl.appendChild(pillsEl); } return pillsEl; }
+
+    function addToolPill(name, risk) {
+      if (!currentGroupEl) { removeThinking(); createNikaGroup(); }
+      const pills = ensurePillsRow();
+      const wrap = document.createElement('div');
+      wrap.className = 'flex flex-col gap-0.5';
+      const pill = document.createElement('div');
+      pill.className = 'tool-pill border border-zinc-700 text-zinc-400';
+      pill.innerHTML = `<span class="font-medium">${escHtml(name)}</span><span class="pill-chevron text-zinc-600 text-[10px] ml-0.5">&#x25BE;</span>`;
+      const detail = document.createElement('div');
+      detail.className = 'tool-detail hidden px-3 py-2 space-y-1';
+      detail.innerHTML = '<div class="tool-args text-zinc-500"></div><div class="tool-result text-zinc-500"></div>';
+      pill.onclick = () => { wrap.classList.toggle('tool-pill-open'); detail.classList.toggle('hidden'); };
+      wrap.appendChild(pill); wrap.appendChild(detail); pills.appendChild(wrap); scrollChat();
+      pendingTools[name] = { argsEl: detail.querySelector('.tool-args'), resultEl: detail.querySelector('.tool-result'), wrapEl: wrap, detailEl: detail };
+    }
+
+    function handleEvent(event) {
+      const running = document.getElementById('running-indicator');
+      if (event.type === 'llm_chunk') {
+        const pre = ensureNikaGroup();
+        rawFinalText += event.content;
+        nikaRespText += event.content;
+        ttsBuffer += event.content;
+        setRealtimeStatus('Nika is thinking...', true);
+
+        // Stream TTS sentence by sentence
+        const sentenceEnd = /[.!?\n]/.exec(ttsBuffer);
+        if (sentenceEnd) {
+          const splitIdx = sentenceEnd.index + 1;
+          const sentence = ttsBuffer.substring(0, splitIdx);
+          ttsBuffer = ttsBuffer.substring(splitIdx);
+          // Only queue if it contains actual letters/numbers to avoid edge_tts failures on just symbols
+          if (/[a-zA-Z0-9]/.test(sentence)) {
+            queueSpeech(sentence);
+          }
+        }
+        
+        let displayContent = rawFinalText;
+        const moodMatch = rawFinalText.match(/<mood>(.*?)<\/mood>/i);
+        if (moodMatch) {
+           currentMood = moodMatch[1].trim().toLowerCase();
+           displayContent = rawFinalText.replace(moodMatch[0], '');
+        } else {
+           const partialMatch = rawFinalText.match(/<mood[^>]*$/i);
+           if (partialMatch) displayContent = rawFinalText.substring(0, partialMatch.index);
+        }
+        
+        pre.textContent = displayContent.trimStart();
+        streamingPre = pre; scrollChat();
+      } else if (event.type === 'tool_start') {
+        streamingPre = null; rawFinalText = '';
+        addToolPill(event.tool_name, event.risk || 'SAFE');
+        const t = pendingTools[event.tool_name];
+        if (t && event.tool_args) t.argsEl.innerHTML = '<span class="text-zinc-600">args</span><br>' + escHtml(JSON.stringify(event.tool_args, null, 2));
+        running.classList.remove('hidden');
+        running.innerHTML = `● working: ${event.tool_name}...`;
+        setRealtimeStatus(`Consulting ${event.tool_name}...`, true);
+      } else if (event.type === 'tool_end') {
+        const t = pendingTools[event.tool_name];
+        if (t) t.resultEl.innerHTML = '<span class="text-zinc-600">result</span><br>' + escHtml(event.tool_result.slice(0, 800));
+        if (event.tool_name === 'web_search' && !event.tool_result.startsWith('[Error]')) fetchSearchResults();
+        running.innerHTML = `● busy`;
+        setRealtimeStatus(`Finished with ${event.tool_name}`, true);
+      } else if (event.type === 'final') {
+        setAvatarTalking(false); removeThinking();
+        if (!streamingPre) { createNikaGroup(); bubbleTextEl.textContent = event.content; }
+        setRealtimeStatus('', false);
+        if (ttsBuffer.trim() && /[a-zA-Z0-9]/.test(ttsBuffer)) { queueSpeech(ttsBuffer); ttsBuffer = ''; }
+        nikaRespText = ''; rawFinalText = ''; 
+        streamingPre = null; currentGroupEl = null; bubbleTextEl = null; pillsEl = null; pendingTools = {};
+        running.classList.add('hidden');
+        running.innerHTML = `● busy`;
+      } else if (event.type === 'error') {
+        removeThinking();
+        setRealtimeStatus('Something went wrong...', true);
+        setTimeout(() => setRealtimeStatus('', false), 3000);
+        running.classList.add('hidden');
+        running.innerHTML = `● busy`;
+      } else if (event.type === 'memory_list') {
+        renderMemories(event.memories);
+      }
+    }
+
+    function renderMemories(mems) {
+      const list = document.getElementById('memory-list');
+      if (!mems || !mems.length) { list.innerHTML = '<div class="text-zinc-600 italic">No memories yet.</div>'; return; }
+      list.innerHTML = mems.map(m => `
+        <div class="p-2 bg-zinc-800/50 rounded border border-zinc-700/50 group flex justify-between items-start">
+          <div class="flex flex-col gap-0.5 min-w-0">
+            <span class="text-zinc-400 text-[11px] leading-tight break-words">${escHtml(m.content)}</span>
+            <span class="text-[9px] text-pink-500/50 uppercase font-bold tracking-tighter">${escHtml(m.category)}</span>
+          </div>
+          <button onclick="deleteMemory('${escHtml(m.content).replace(/'/g, "\\'")}')" class="hidden group-hover:block text-zinc-600 hover:text-red-400 ml-1">&#x2717;</button>
+        </div>
+      `).join('');
+    }
+
+    async function deleteMemory(content) {
+      if (!confirm('Forget this memory?')) return;
+      try {
+        await fetch('/memory/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }) });
+        updateMemory();
+      } catch(e) {}
+    }
+
+    async function updateMemory() {
+      try { const res = await fetch('/memory'); const data = await res.json(); renderMemories(data.memories); } catch(e) {}
+    }
+    setInterval(updateMemory, 10000); updateMemory();
+
+    async function fetchEpisodes() {
+      try {
+        const res = await fetch('/episodes');
+        const data = await res.json();
+        const list = document.getElementById('history-list');
+        if (data.episodes && data.episodes.length) {
+          list.innerHTML = data.episodes.map(e => `
+            <div onclick="loadEpisode('${e.id}')" class="p-2 bg-zinc-800/50 hover:bg-zinc-800 border border-zinc-700/50 rounded cursor-pointer transition-colors group">
+              <div class="text-[10px] text-zinc-300 font-medium line-clamp-2 leading-snug">${escHtml(e.summary || 'Untitled Session')}</div>
+              <div class="text-[8px] text-zinc-600 mt-1 uppercase tracking-tighter">${e.started_at.slice(0, 10)}</div>
+            </div>
+          `).join('');
+        }
+      } catch(e) {}
+    }
+    fetchEpisodes();
+
+    async function loadEpisode(id) {
+      if (!confirm('Switch to this past conversation?')) return;
+      try {
+        const res = await fetch(`/episodes/${id}`);
+        const data = await res.json();
+        if (data.messages) {
+            renderMessages(data.messages);
+            setRealtimeStatus('Viewing past history', true);
+            setTimeout(() => setRealtimeStatus('', false), 3000);
+        }
+      } catch(e) {}
+    }
+
+    function renderMessages(messages) {
+      const chat = document.getElementById('chat');
+      chat.innerHTML = '';
+      for (const msg of messages) {
+        if (msg.role === 'user' && !msg.content.startsWith('[Tool Results]')) {
+          addUserBubble(msg.content);
+        } else if (msg.role === 'assistant') {
+          createNikaGroup();
+          let displayContent = msg.content;
+          const thinkMatch = displayContent.match(/<thinking>[\s\S]*?<\/thinking>/gi);
+          if (thinkMatch) thinkMatch.forEach(m => displayContent = displayContent.replace(m, ''));
+          const moodMatch = displayContent.match(/<mood>(.*?)<\/mood>/i);
+          if (moodMatch) displayContent = displayContent.replace(moodMatch[0], '');
+          bubbleTextEl.textContent = displayContent.trim();
+          streamingPre = null; currentGroupEl = null; bubbleTextEl = null; pillsEl = null;
+        }
+      }
+      scrollChat();
+    }
+
+    async function updateStats() {
+      try { const res = await fetch('/stats'); const data = await res.json();
+        document.getElementById('cpu-bar').style.width = data.cpu + '%';
+        document.getElementById('ram-bar').style.width = data.ram + '%';
+      } catch(e) {}
+    }
+    setInterval(updateStats, 3000);
+
+    async function fetchSearchResults() {
+      try {
+        const res = await fetch('/search_results'); const data = await res.json();
+        const container = document.getElementById('search-panel'); const list = document.getElementById('search-results-list');
+        if (data.results && data.results.length) {
+          list.innerHTML = data.results.map(r => `
+            <div class="p-2 bg-zinc-800 rounded border border-zinc-700 hover:border-pink-500/30 transition-colors cursor-pointer group" onclick="window.open('${r.href}', '_blank')">
+              <div class="text-pink-400 text-[11px] font-bold truncate group-hover:underline">${escHtml(r.title)}</div>
+              <div class="text-zinc-500 text-[9px] truncate mb-1">${escHtml(r.href)}</div>
+              <div class="text-zinc-400 text-[10px] leading-tight line-clamp-2">${escHtml(r.body)}</div>
+            </div>
+          `).join('');
+          container.classList.remove('hidden');
+        }
+      } catch(e) {}
+    }
+
+    function sendMessage() {
+      const input = document.getElementById('input');
+      const msg = input.value.trim();
+      if (!msg) return;
+      addUserBubble(msg); input.value = ''; 
+      showThinking();
+      setRealtimeStatus('Processing request...', true);
+      document.getElementById('running-indicator').classList.remove('hidden');
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'chat', content: msg }));
+      } else {
+        messageBuffer.push(msg);
+        setRealtimeStatus('Reconnecting...', true);
+      }
+    }
+
+    let ttsEnabled = true, ttsAudio = null, speechQueue = [], isSpeaking = false, ttsBuffer = '';
+    async function processSpeechQueue() {
+      if (isSpeaking || speechQueue.length === 0 || !ttsEnabled) return;
+      isSpeaking = true;
+      const text = speechQueue.shift();
+      try {
+        const res = await fetch('/tts', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+        if (!res.ok) { isSpeaking = false; processSpeechQueue(); return; }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        if (ttsAudio) { ttsAudio.pause(); try { URL.revokeObjectURL(ttsAudio._srcUrl); } catch(e){} }
+        ttsAudio = new Audio(url); ttsAudio._srcUrl = url;
+        ttsAudio.onplay = () => setAvatarTalking(true);
+        ttsAudio.onended = () => { setAvatarTalking(false); isSpeaking = false; try { URL.revokeObjectURL(url); } catch(e){} processSpeechQueue(); };
+        await ttsAudio.play();
+      } catch(e) { isSpeaking = false; processSpeechQueue(); }
+    }
+    function queueSpeech(text) {
+      if (!ttsEnabled || !text.trim()) return;
+      const cleanText = text.replace(/<mood>.*?<\/mood>/gi, '').trim();
+      if (cleanText) { speechQueue.push(cleanText); processSpeechQueue(); }
+    }
+    function toggleTTS() {
+      ttsEnabled = !ttsEnabled;
+      document.getElementById('tts-on-icon').classList.toggle('hidden', !ttsEnabled);
+      document.getElementById('tts-off-icon').classList.toggle('hidden', ttsEnabled);
+      if (!ttsEnabled) { if (ttsAudio) ttsAudio.pause(); speechQueue = []; isSpeaking = false; setAvatarTalking(false); }
+    }
+
+    function toggleVoiceMode() {
+      voiceMode = !voiceMode;
+      document.getElementById('keyboard-mode').classList.toggle('hidden', voiceMode);
+      document.getElementById('voice-mode').classList.toggle('hidden', !voiceMode);
+    }
+
+    let voiceMode = false, isListening = false, recognition = null;
+    function toggleListening() {
+      if (isListening) { stopListening(); return; }
+      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SR) return;
+      recognition = new SR(); recognition.lang = 'en-US';
+      recognition.onstart = () => {
+          setAvatarListening(true);
+          setRealtimeStatus('Listening to you...', true);
+      };
+      recognition.onresult = (e) => {
+        const t = e.results[0][0].transcript;
+        if (t) { 
+            addUserBubble(t); showThinking(); 
+            if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'chat', content: t }));
+            else messageBuffer.push(t);
+        }
+        stopListening();
+      };
+      recognition.onend = () => stopListening();
+      isListening = true; document.getElementById('mic-btn').classList.add('mic-listening');
+      recognition.start();
+    }
+    function stopListening() { 
+        isListening = false; 
+        setAvatarListening(false);
+        setRealtimeStatus('', false);
+        if(document.getElementById('mic-btn')) document.getElementById('mic-btn').classList.remove('mic-listening'); 
+        if(recognition) recognition.stop(); 
+    }
+
+    function openModelModal() {
+      document.getElementById('model-modal').classList.remove('hidden');
+      const container = document.getElementById('model-list-container');
+      container.innerHTML = '<div class="text-zinc-500 text-xs text-center py-4">Loading...</div>';
+      fetch('/models').then(r => r.json()).then(data => {
+        const models = data.models || [];
+        container.innerHTML = models.map(m => `<button onclick="selectModel('${m}')" class="w-full text-left px-3 py-2 rounded-lg hover:bg-zinc-800 text-zinc-300 text-xs transition">${m}</button>`).join('');
+      });
+    }
+    function selectModel(m) {
+      ws.send(JSON.stringify({ type: "model_change", model: m }));
+      document.getElementById('model-badge').textContent = m;
+      document.getElementById('model-modal').classList.add('hidden');
+    }
+
+    async function loadHistory() {
+      try {
+        const res = await fetch('/history');
+        const data = await res.json();
+        if (data.messages && data.messages.length > 0) {
+            renderMessages(data.messages);
+        }
+      } catch(e) { console.error('Failed to load history', e); }
+    }
+
+    function connect() {
+      init3D();
+      loadHistory();
+      ws = new WebSocket('ws://' + location.host + '/ws');
+      ws.onopen = () => {
+        if (messageBuffer.length > 0) {
+            setRealtimeStatus('Sending queued messages...', true);
+            messageBuffer.forEach(msg => ws.send(JSON.stringify({ type: 'chat', content: msg })));
+            messageBuffer = [];
+        }
+      };
+      ws.onmessage = (e) => handleEvent(JSON.parse(e.data));
+      ws.onclose = () => setTimeout(connect, 2000);
+    }
+    document.getElementById('input').onkeydown = (e) => { if(e.key === 'Enter') sendMessage(); };
+    connect();
+  </script>
+</body>
+</html>
